@@ -1,9 +1,11 @@
 name: 📊 Resumen Noticias Diario
 
+# Ejecuta cada día a las 6:00 AM (Hora México CST)
+# 6 AM CST = 12 UTC
 on:
   schedule:
-    - cron: '0 12 * * *'
-  workflow_dispatch:
+    - cron: '0 12 * * *'  # Todos los días a las 6 AM México
+  workflow_dispatch:      # Permite ejecutar manualmente
 
 jobs:
   resumen-noticias:
@@ -22,12 +24,12 @@ jobs:
         run: |
           pip install requests
       
-      - name: Ejecutar script
+      - name: Ejecutar script de análisis
         env:
-          FT_API_KEY: ${{ secrets.FT_API_KEY }}
+          # Variables de entorno - Se obtienen de GitHub Secrets
+          # NOTA: Sin Google TTS (sin RFC necesario)
           NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
-          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
@@ -36,8 +38,12 @@ jobs:
       
       - name: Notificar éxito
         if: success()
-        run: echo "✅ Resumen enviado exitosamente"
+        run: |
+          echo "✅ Resumen de noticias enviado exitosamente a WhatsApp"
+          echo "Hora: $(date)"
       
       - name: Notificar error
         if: failure()
-        run: echo "❌ Error en la ejecución"
+        run: |
+          echo "❌ Error en la ejecución del script"
+          echo "Hora: $(date)"
