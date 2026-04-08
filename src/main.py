@@ -1,119 +1,89 @@
 #!/usr/bin/env python3
 """
-Sistema de Noticias Financieras - GitHub Actions
-100% GRATIS - Financial Times + NewsAPI + Claude + WhatsApp
-Corre automáticamente a las 6 AM (Hora México) cada día
+Sistema Automático de Noticias Financieras (SIN PODCAST)
+Busca noticias -> Analiza con Claude -> Envía a WhatsApp
+Ejecutado por GitHub Actions a las 6 AM (Hora México)
+Usuario: santiagocardborrego-cloud
+
+NOTA: Esta versión NO genera podcast de audio.
+Solo envía el resumen de texto a WhatsApp (más simple).
 """
 
 import os
 import json
 import requests
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple
-import base64
+from typing import List, Dict
 
 # ====================
 # CONFIGURACIÓN
 # ====================
 
-# Obtén estos valores de variables de entorno (GitHub Secrets)
-FT_API_KEY = os.getenv('FT_API_KEY', '')  # Tu Financial Times API Key
-NEWSAPI_KEY = os.getenv('NEWSAPI_KEY', '')  # newsapi.org (gratis)
-CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')  # console.anthropic.com
-GOOGLE_TTS_API_KEY = os.getenv('GOOGLE_TTS_API_KEY')  # console.cloud.google.com
-TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')  # twilio.com
+# Obtener credenciales de variables de entorno (GitHub Secrets)
+NEWSAPI_KEY = os.getenv('NEWSAPI_KEY', '')
+CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
-TWILIO_WHATSAPP_FROM = os.getenv('TWILIO_WHATSAPP_FROM', '')  # +1234567890
-TU_NUMERO_WHATSAPP = os.getenv('TU_NUMERO_WHATSAPP')  # +52XXXXXXXXXX
+TWILIO_WHATSAPP_FROM = os.getenv('TWILIO_WHATSAPP_FROM', '')
+TU_NUMERO_WHATSAPP = os.getenv('TU_NUMERO_WHATSAPP')
+
+# Configuración
+ZONA_HORARIA = "America/Mexico_City"
+EMAIL_USUARIO = "santiago.cardborrego@gmail.com"
 
 # ====================
-# FUNCIÓN 1: Obtener Noticias
+# FUNCIONES AUXILIARES
+# ====================
+
+def log(mensaje: str, tipo: str = "INFO"):
+    """Registra mensajes en logs con timestamp"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] {tipo}: {mensaje}")
+
+def validar_credenciales() -> bool:
+    """Verifica que todas las credenciales estén disponibles"""
+    log("Validando credenciales...")
+    
+    credenciales_requeridas = {
+        'NEWSAPI_KEY': NEWSAPI_KEY,
+        'CLAUDE_API_KEY': CLAUDE_API_KEY,
+        'TWILIO_ACCOUNT_SID': TWILIO_ACCOUNT_SID,
+        'TWILIO_AUTH_TOKEN': TWILIO_AUTH_TOKEN,
+        'TWILIO_WHATSAPP_FROM': TWILIO_WHATSAPP_FROM,
+        'TU_NUMERO_WHATSAPP': TU_NUMERO_WHATSAPP,
+    }
+    
+    faltantes = [k for k, v in credenciales_requeridas.items() if not v]
+    
+    if faltantes:
+        log(f"❌ Credenciales faltantes: {', '.join(faltantes)}", "ERROR")
+        return False
+    
+    log("✅ Todas las credenciales validadas")
+    return True
+
+# ====================
+# FUNCIÓN 1: OBTENER NOTICIAS
 # ====================
 
 def obtener_noticias() -> List[Dict]:
     """
-    Obtiene noticias de Financial Times y NewsAPI
-    Prioriza FT si tienes key, sino usa NewsAPI (gratis)
+    Obtiene noticias de NewsAPI
+    Busca últimas 24 horas de noticias sobre mercados y finanzas
     """
-    noticias = []
+    log("Buscando noticias en NewsAPI...")
     
-    # INTENTA PRIMERO FINANCIAL TIMES
-    if FT_API_KEY:
-        print("📰 Buscando en Financial Times...")
-        noticias.extend(obtener_noticias_financial_times())
-    
-    # COMPLEMENTA CON NewsAPI (siempre disponible)
-    print("📰 Buscando en NewsAPI...")
-    noticias.extend(obtener_noticias_newsapi())
-    
-    # Remover duplicados y ordenar por relevancia
-    noticias_unicas = []
-    titulos_vistos = set()
-    
-    for noticia in noticias:
-        if noticia['titulo'] not in titulos_vistos:
-            titulos_vistos.add(noticia['titulo'])
-            noticias_unicas.append(noticia)
-    
-    return noticias_unicas[:25]  # Top 25 noticias
-
-def obtener_noticias_financial_times() -> List[Dict]:
-    """Obtiene noticias de Financial Times"""
     try:
         ahora = datetime.utcnow()
         hace24h = ahora - timedelta(days=1)
         
-        fecha_desde = hace24h.strftime('%Y-%m-%d')
-        fecha_hasta = ahora.strftime('%Y-%m-%d')
-        
-        # Query para economía, finanzas, política
-        query = 'markets OR finance OR economy OR "central bank" OR inflation OR "interest rates" OR stocks'
-        
-        url = 'https://api.ft.com/content/search'
-        params = {
-            'q': query,
-            'apiKey': FT_API_KEY,
-            'maxResults': 50,
-            'sortOrder': 'DESC'
-        }
-        
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code != 200:
-            print(f"⚠️ Error FT API: {response.status_code}")
-            return []
-        
-        data = response.json()
-        noticias = []
-        
-        for item in data.get('results', [])[:15]:
-            noticias.append({
-                'titulo': item.get('title', ''),
-                'descripcion': item.get('standfirst', item.get('summary', '')),
-                'url': item.get('id', ''),
-                'fuente': 'Financial Times',
-                'fecha': item.get('createdDate', '')
-            })
-        
-        print(f"✅ Financial Times: {len(noticias)} noticias")
-        return noticias
-        
-    except Exception as e:
-        print(f"❌ Error FT: {e}")
-        return []
-
-def obtener_noticias_newsapi() -> List[Dict]:
-    """Obtiene noticias de NewsAPI (gratis: 500 requests/día)"""
-    try:
-        # Noticias de hoy
-        hoy = datetime.utcnow().strftime('%Y-%m-%d')
-        
-        # Búsquedas por sector
+        # Búsquedas por categoría
         queries = [
-            'markets finance economy',
+            'markets finance economy Mexico',
             'central bank inflation interest rates',
-            'Mexico economy markets',
-            'stock market USA China'
+            'stock market USA China',
+            'peso USD exchange rate',
+            'commodities oil gold'
         ]
         
         todas_noticias = []
@@ -122,7 +92,6 @@ def obtener_noticias_newsapi() -> List[Dict]:
             url = 'https://newsapi.org/v2/everything'
             params = {
                 'q': query,
-                'from': hoy,
                 'sortBy': 'publishedAt',
                 'language': 'en',
                 'apiKey': NEWSAPI_KEY,
@@ -132,7 +101,7 @@ def obtener_noticias_newsapi() -> List[Dict]:
             response = requests.get(url, params=params, timeout=10)
             
             if response.status_code != 200:
-                print(f"⚠️ NewsAPI error: {response.status_code}")
+                log(f"⚠️ Error NewsAPI ({query}): {response.status_code}", "WARN")
                 continue
             
             data = response.json()
@@ -146,29 +115,47 @@ def obtener_noticias_newsapi() -> List[Dict]:
                     'fecha': article.get('publishedAt', '')
                 })
         
-        print(f"✅ NewsAPI: {len(todas_noticias)} noticias")
-        return todas_noticias
+        # Remover duplicados
+        noticias_unicas = []
+        titulos_vistos = set()
+        
+        for noticia in todas_noticias:
+            if noticia['titulo'] not in titulos_vistos:
+                titulos_vistos.add(noticia['titulo'])
+                noticias_unicas.append(noticia)
+        
+        noticias_finales = noticias_unicas[:25]  # Top 25
+        log(f"✅ NewsAPI: {len(noticias_finales)} noticias obtenidas")
+        return noticias_finales
         
     except Exception as e:
-        print(f"❌ Error NewsAPI: {e}")
+        log(f"❌ Error obteniendo noticias: {e}", "ERROR")
         return []
 
 # ====================
-# FUNCIÓN 2: Analizar con Claude
+# FUNCIÓN 2: ANALIZAR CON CLAUDE
 # ====================
 
-def analizar_noticias(noticias: List[Dict]) -> str:
-    """Analiza noticias con Claude (tier gratis)"""
+def analizar_noticias_con_claude(noticias: List[Dict]) -> str:
+    """
+    Analiza noticias con Claude API (tier gratis)
+    Genera resumen profesional para WhatsApp
+    """
+    log("Analizando noticias con Claude...")
+    
+    if not noticias:
+        log("No hay noticias para analizar", "WARN")
+        return "No se encontraron noticias relevantes"
     
     # Formatear noticias para Claude
     noticias_text = ''
     for i, noticia in enumerate(noticias[:20], 1):
         noticias_text += f"{i}. {noticia['titulo']}\n"
         if noticia['descripcion']:
-            noticias_text += f"   {noticia['descripcion'][:200]}\n"
+            noticias_text += f"   {noticia['descripcion'][:150]}\n"
         noticias_text += f"   Fuente: {noticia['fuente']}\n\n"
     
-    prompt = f"""Eres un analista financiero para México y mercados globales.
+    prompt = f"""Eres un analista financiero especializado en mercados mexicanos y globales.
 
 NOTICIAS DEL ÚLTIMO DÍA:
 {noticias_text}
@@ -176,29 +163,28 @@ NOTICIAS DEL ÚLTIMO DÍA:
 TAREA: Genera un resumen ejecutivo EXACTAMENTE en este formato:
 
 📍 NOTICIAS GLOBALES
-Máximo 15 noticias con formato:
+Máximo 15 noticias. Formato:
 🔴 [SECTOR] TITULAR
 ↳ Impacto: [máximo 2 líneas]
 
 🇲🇽 NOTICIAS MÉXICO
-Máximo 8 noticias con formato:
-🔵 [SECTOR] TITULAR
+Máximo 8 noticias. Formato:
+🔵 [SECTOR] TITULAR  
 ↳ Impacto: [máximo 2 líneas]
 
-📊 INDICADORES CLAVE (últimos valores conocidos)
-- USD/MXN: [precio y %]
-- IPC: [puntos y %]
-- S&P 500: [puntos y %]
-- WTI: [USD/barril]
-- CETE 28: [%]
-- Inflación: [%]
+📊 INDICADORES CLAVE
+- USD/MXN: [último dato disponible]
+- IPC: [último dato disponible]
+- S&P 500: [último dato disponible]
+- CETE 28: [último dato disponible]
 
 💡 OPORTUNIDADES Y ALERTAS
-- Sectores en oportunidad (2-3 máximo)
+- Sectores en oportunidad (máximo 3)
 - Riesgos identificados
 - Seguimiento importante hoy
 
-Sé conciso. Máximo 2 líneas por noticia. Total máximo 5 mensajes WhatsApp."""
+Sé muy conciso. Máximo 2 líneas por noticia. 
+Total máximo: 5 mensajes para WhatsApp (máximo 4,000 caracteres)."""
 
     try:
         response = requests.post(
@@ -211,95 +197,42 @@ Sé conciso. Máximo 2 líneas por noticia. Total máximo 5 mensajes WhatsApp.""
             json={
                 'model': 'claude-opus-4-20250514',
                 'max_tokens': 1500,
-                'system': 'Eres un analista financiero profesional. Sé conciso, claro y accionable. Máximo 2 líneas por impacto.',
+                'system': 'Eres un analista financiero profesional. Sé conciso, claro y accionable.',
                 'messages': [{'role': 'user', 'content': prompt}]
             },
             timeout=30
         )
         
         if response.status_code != 200:
-            print(f"❌ Error Claude: {response.status_code}")
-            return "Error al generar resumen"
+            log(f"❌ Error Claude API: {response.status_code}", "ERROR")
+            return "Error al generar análisis"
         
         data = response.json()
         resumen = data['content'][0]['text']
-        print("✅ Análisis completado")
+        log(f"✅ Análisis completado ({len(resumen)} caracteres)")
         return resumen
         
     except Exception as e:
-        print(f"❌ Error Claude API: {e}")
-        return f"Error: {e}"
+        log(f"❌ Error en Claude API: {e}", "ERROR")
+        return f"Error: {str(e)}"
 
 # ====================
-# FUNCIÓN 3: Generar Podcast
+# FUNCIÓN 3: ENVIAR A WHATSAPP
 # ====================
 
-def generar_podcast(resumen: str) -> Tuple[str, bytes]:
+def enviar_whatsapp(resumen: str) -> bool:
     """
-    Genera podcast con Google Cloud TTS
-    Retorna (mime_type, audio_bytes)
+    Envía resumen a WhatsApp usando Twilio
+    (SIN PODCAST - Solo texto)
     """
-    
-    # Reducir resumen para podcast (~3-4 minutos)
-    resumen_corto = resumen[:2000]
-    
-    guion = f"""Buenos días. Soy tu analista de mercados. Son las 6 de la mañana 
-y aquí está el resumen de lo que pasó en los mercados internacionales 
-y en México.
-
-{resumen_corto}
-
-Eso es todo por hoy. Mucho éxito en tus inversiones."""
-
-    try:
-        payload = {
-            'input': {'text': guion},
-            'voice': {
-                'languageCode': 'es-MX',
-                'name': 'es-MX-Neural2-B',
-                'ssmlGender': 'MALE'
-            },
-            'audioConfig': {
-                'audioEncoding': 'MP3',
-                'pitch': 0.2,
-                'speakingRate': 1.1
-            }
-        }
-        
-        response = requests.post(
-            f'https://texttospeech.googleapis.com/v1/text:synthesize?key={GOOGLE_TTS_API_KEY}',
-            json=payload,
-            timeout=30
-        )
-        
-        if response.status_code != 200:
-            print(f"❌ Error TTS: {response.status_code}")
-            return None, None
-        
-        data = response.json()
-        audio_base64 = data['audioContent']
-        
-        # Convertir base64 a bytes
-        audio_bytes = base64.b64decode(audio_base64)
-        
-        print(f"✅ Podcast generado ({len(audio_bytes)} bytes)")
-        return 'audio/mpeg', audio_bytes
-        
-    except Exception as e:
-        print(f"❌ Error generando podcast: {e}")
-        return None, None
-
-# ====================
-# FUNCIÓN 4: Enviar a WhatsApp
-# ====================
-
-def enviar_whatsapp(resumen: str, audio_bytes: bytes = None):
-    """Envía resumen + podcast a WhatsApp vía Twilio"""
+    log("Enviando a WhatsApp...")
     
     try:
         # Dividir resumen en mensajes (máx 1000 chars)
         mensajes = dividir_texto(resumen, 900)
         
+        # Preparar autenticación Twilio
+        import base64
         auth = base64.b64encode(
             f"{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}".encode()
         ).decode()
@@ -311,9 +244,9 @@ def enviar_whatsapp(resumen: str, audio_bytes: bytes = None):
         
         url = f'https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json'
         
-        # Enviar cada mensaje de texto
-        for i, msg in enumerate(mensajes):
-            print(f"📤 Enviando mensaje {i+1}/{len(mensajes)}...")
+        # Enviar mensajes de texto
+        for i, msg in enumerate(mensajes, 1):
+            log(f"Enviando mensaje {i}/{len(mensajes)}...")
             
             data = {
                 'From': f'whatsapp:{TWILIO_WHATSAPP_FROM}',
@@ -324,19 +257,17 @@ def enviar_whatsapp(resumen: str, audio_bytes: bytes = None):
             response = requests.post(url, data=data, headers=headers, timeout=10)
             
             if response.status_code not in [200, 201]:
-                print(f"⚠️ Error enviando mensaje: {response.status_code}")
-            else:
-                print(f"✅ Mensaje {i+1} enviado")
+                log(f"⚠️ Error enviando mensaje {i}: {response.status_code}", "WARN")
+                continue
+            
+            log(f"✅ Mensaje {i} enviado")
         
-        # Enviar podcast si existe
-        if audio_bytes:
-            print("🎙️ Enviando podcast...")
-            # NOTA: Para enviar audio, necesitas guardar en servidor
-            # y pasar la URL pública. Por ahora, solo logs.
-            print(f"✅ Audio listo ({len(audio_bytes)} bytes)")
+        log(f"✅ Todos los {len(mensajes)} mensajes enviados a WhatsApp")
+        return True
         
     except Exception as e:
-        print(f"❌ Error WhatsApp: {e}")
+        log(f"❌ Error en WhatsApp: {e}", "ERROR")
+        return False
 
 def dividir_texto(texto: str, max_len: int = 900) -> List[str]:
     """Divide texto en chunks para WhatsApp"""
@@ -361,40 +292,42 @@ def dividir_texto(texto: str, max_len: int = 900) -> List[str]:
 # ====================
 
 def main():
-    """Ejecuta el flujo completo"""
-    print("=" * 60)
-    print("📊 SISTEMA DE NOTICIAS FINANCIERAS")
-    print(f"🕐 Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
+    """Ejecuta el flujo completo (SIN PODCAST)"""
+    log("=" * 60)
+    log("SISTEMA DE NOTICIAS FINANCIERAS - INICIANDO")
+    log("=" * 60)
+    
+    # Validar credenciales
+    if not validar_credenciales():
+        log("Abortando: Credenciales incompletas", "ERROR")
+        return
     
     # Paso 1: Obtener noticias
-    print("\n[1/4] Obteniendo noticias...")
+    log("\n[1/2] Obteniendo noticias...")
     noticias = obtener_noticias()
-    print(f"✅ {len(noticias)} noticias recopiladas")
     
     if not noticias:
-        print("❌ No se obtuvieron noticias. Abortando.")
+        log("No se obtuvieron noticias. Abortando.", "ERROR")
         return
     
     # Paso 2: Analizar con Claude
-    print("\n[2/4] Analizando con Claude...")
-    resumen = analizar_noticias(noticias)
-    print(f"✅ Resumen generado ({len(resumen)} caracteres)")
+    log("\n[2/2] Analizando con Claude...")
+    resumen = analizar_noticias_con_claude(noticias)
     
-    # Paso 3: Generar podcast
-    print("\n[3/4] Generando podcast...")
-    mime_type, audio_bytes = generar_podcast(resumen)
+    # Paso 3: Enviar a WhatsApp (SIN PODCAST)
+    log("\n[3/3] Enviando a WhatsApp...")
+    whatsapp_ok = enviar_whatsapp(resumen)
     
-    # Paso 4: Enviar a WhatsApp
-    print("\n[4/4] Enviando a WhatsApp...")
-    enviar_whatsapp(resumen, audio_bytes)
+    # Resumen final
+    log("\n" + "=" * 60)
+    if whatsapp_ok:
+        log("✅ PROCESO COMPLETADO EXITOSAMENTE")
+    else:
+        log("❌ COMPLETADO CON ERRORES", "ERROR")
+    log("=" * 60)
     
-    print("\n" + "=" * 60)
-    print("✅ ¡COMPLETO!")
-    print("=" * 60)
-    
-    # Mostrar resumen en logs
-    print("\n📋 RESUMEN GENERADO:\n")
+    # Mostrar resumen
+    log("\n📋 RESUMEN ENVIADO:\n")
     print(resumen)
 
 if __name__ == '__main__':
