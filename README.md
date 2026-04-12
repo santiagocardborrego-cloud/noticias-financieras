@@ -1,22 +1,24 @@
-# 📊 Sistema de Noticias Financieras
+# 📊 Sistema Automático de Noticias Financieras
 
-Sistema automático que te envía cada día a las 6 AM:
-- 📰 Noticias de mercados globales y México
-- 📊 Indicadores económicos clave
-- 🎙️ Podcast de 5 minutos
-- 💡 Oportunidades de inversión
+**Usuario:** santiagocardborrego-cloud  
+**Ejecución:** Diaria a las 6:00 AM (Hora México)
 
-## Tecnologías
-- GitHub Actions (Scheduler)
-- Claude API (Análisis)
-- NewsAPI (Noticias)
-- Google Cloud TTS (Podcast)
-- Twilio (WhatsApp)
+## 🎯 ¿Qué hace?
 
-## Costo
-Completamente GRATIS
+Cada día a las 6 AM, automáticamente:
 
-## Setup
-1. Agregar Secrets
-2. Ejecutar workflow
-3. ¡Listo!
+1. 📰 **Busca noticias** de mercados globales y México
+2. 📊 **Analiza con Claude AI** para extraer lo importante
+3. 📧 **Envía por EMAIL** el resumen
+
+## 🛠️ Tecnologías
+
+- **GitHub Actions**: Ejecuta automáticamente
+- **Claude API**: Análisis de IA
+- **NewsAPI**: Búsqueda de noticias
+
+## 📋 Setup
+
+### 1. Crear Secrets en GitHub
+
+Settings → Secrets and variables → Actions
